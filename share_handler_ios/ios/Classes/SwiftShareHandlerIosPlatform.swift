@@ -4,7 +4,7 @@ import Photos
 import Intents
 import share_handler_ios_models
 
-public class SwiftShareHandlerIosPlatform: NSObject, FlutterPlugin, FlutterStreamHandler, ShareHandlerApi {
+public class SwiftShareHandlerIosPlatform: NSObject, FlutterPlugin, FlutterStreamHandler, ShareHandlerApi, FlutterSceneLifeCycleDelegate {
     
     
     //     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -36,6 +36,10 @@ public class SwiftShareHandlerIosPlatform: NSObject, FlutterPlugin, FlutterStrea
         eventsChannel.setStreamHandler(instance)
 
         registrar.addApplicationDelegate(instance)
+        // UIScene life cycle (Flutter 3.38+): once the host app adopts scenes,
+        // UIKit delivers the ShareMedia URL to the scene, not to the
+        // application delegate.
+        registrar.addSceneDelegate(instance)
     }
 
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
@@ -110,6 +114,46 @@ public class SwiftShareHandlerIosPlatform: NSObject, FlutterPlugin, FlutterStrea
             }
         }
         return false
+    }
+
+    // Cold start under the UIScene life cycle. Returning true marks the
+    // connection as handled, so the engine does not also push the ShareMedia
+    // URL to the Flutter router as a deep link. Without it an app using
+    // go_router lands on its "page not found" screen.
+    @objc(scene:willConnectToSession:options:)
+    public func scene(
+        _ scene: UIScene,
+        willConnectTo session: UISceneSession,
+        options connectionOptions: UIScene.ConnectionOptions?
+    ) -> Bool {
+        guard let contexts = connectionOptions?.urlContexts else { return false }
+        return handleSceneUrls(contexts, setInitialData: true)
+    }
+
+    // Warm start under the UIScene life cycle.
+    @objc(scene:openURLContexts:)
+    public func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) -> Bool {
+        return handleSceneUrls(URLContexts, setInitialData: false)
+    }
+
+    private func handleSceneUrls(_ contexts: Set<UIOpenURLContext>, setInitialData: Bool) -> Bool {
+        var handled = false
+        for context in contexts where hasMatchingSchemePrefix(url: context.url) {
+            if handleUrl(url: context.url, setInitialData: setInitialData) {
+                consumeShareKey(from: context.url)
+                handled = true
+            }
+        }
+        return handled
+    }
+
+    // The Share Extension leaves the payload in the App Group under `key`.
+    // Removing it once delivered keeps a later URL from resurfacing an old
+    // share.
+    private func consumeShareKey(from url: URL) {
+        guard let key = url.queryDictionary?["key"] else { return }
+        let appGroupId = (Bundle.main.object(forInfoDictionaryKey: "AppGroupId") as? String) ?? "group.\(Bundle.main.bundleIdentifier!)"
+        UserDefaults(suiteName: appGroupId)?.removeObject(forKey: key)
     }
 
     private func handleUrl(url: URL?, setInitialData: Bool) -> Bool {

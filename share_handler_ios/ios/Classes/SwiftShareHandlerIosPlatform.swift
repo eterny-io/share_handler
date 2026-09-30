@@ -142,6 +142,11 @@ public class SwiftShareHandlerIosPlatform: NSObject, FlutterPlugin, FlutterStrea
             if handleUrl(url: context.url, setInitialData: setInitialData) {
                 consumeShareKey(from: context.url)
                 handled = true
+            } else if context.url.absoluteString.hasPrefix("\(customSchemePrefix)-\(Bundle.main.bundleIdentifier!)") {
+                // A ShareMedia URL without a readable payload is still ours:
+                // claim it so the engine does not deep-link it to the router
+                // as an unknown page. `file://` URLs stay unhandled on failure.
+                handled = true
             }
         }
         return handled

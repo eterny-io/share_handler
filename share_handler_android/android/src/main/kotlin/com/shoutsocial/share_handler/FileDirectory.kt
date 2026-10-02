@@ -31,15 +31,13 @@ object FileDirectory {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT && DocumentsContract.isDocumentUri(context, uri)) {
             // ExternalStorageProvider
             if (isExternalStorageDocument(uri)) {
-                val docId = DocumentsContract.getDocumentId(uri)
-                val split = docId.split(":".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-                val type = split[0]
-
-                return if ("primary".equals(type, ignoreCase = true)) {
-                    context.getExternalFilesDir(null).toString() + "/" + split[1]
-                } else {
-                    getDataColumn(context, uri, null, null)
-                }
+                // Copy through the ContentResolver for every volume. The old
+                // "primary" branch built getExternalFilesDir(null) + "/" + path,
+                // i.e. a path inside this app's own external dir that never
+                // exists, so a file shared from the Files app was silently
+                // dropped. Under scoped storage the real path is not readable
+                // either; the read grant only covers the content URI.
+                return getDataColumn(context, uri, null, null)
             } else if (isDownloadsDocument(uri)) {
                 return try {
                     val id = DocumentsContract.getDocumentId(uri)
